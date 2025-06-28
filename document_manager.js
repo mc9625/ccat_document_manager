@@ -1,319 +1,242 @@
-// Cheshire Cat Document Manager - JavaScript v2 (Official Release)
+// Cheshire Cat Document Manager - Native UI v3.0
+document.addEventListener('DOMContentLoaded', () => {
 
-// Global state
-let allChunks = [];
-let pendingAction = null;
+    let allChunks = [];
+    let pendingAction = null;
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', () => initializeApp());
-
-function initializeApp() {
-    detectCatTheme();
-    refreshDocuments();
-    setupEventListeners();
-}
-
-// Function to detect Cheshire Cat's theme and apply it
-function detectCatTheme() {
-    try {
-        const catTheme = window.parent.document.documentElement.getAttribute('data-theme');
-        if (catTheme) {
-            document.documentElement.setAttribute('data-theme', catTheme);
-        }
-    } catch (e) {
-        console.warn('Could not access parent theme. Using default dark theme.');
+    const searchInput = document.getElementById('searchInput');
+    const documentsContent = document.getElementById('documentsContent');
+    const infoPanel = document.getElementById('infoPanel');
+    const infoPanelOverlay = document.getElementById('infoPanel-overlay');
+    const infoPanelTitle = document.getElementById('infoPanelTitle');
+    const infoPanelBody = document.getElementById('infoPanelBody');
+    const closeInfoPanelBtn = document.getElementById('closeInfoPanel');
+    const confirmModal = document.getElementById('confirmModal');
+    const confirmTitle = document.getElementById('confirmTitle');
+    const confirmBody = document.getElementById('confirmBody');
+    const confirmButton = document.getElementById('confirmButton');
+    const cancelButton = document.getElementById('cancelButton');
+    
+    // --- INITIALIZATION ---
+    function initializeApp() {
+        setupThemeDetection();
+        refreshDocuments();
+        setupEventListeners();
     }
-}
 
-function setupEventListeners() {
-    document.getElementById('searchInput')?.addEventListener('input', debounce(renderDocuments, 300));
-    document.getElementById('refreshButton')?.addEventListener('click', refreshDocuments);
-    document.getElementById('clearAllButton')?.addEventListener('click', confirmClearAll);
-    
-    // Close dropdowns or modals when clicking outside
-    document.addEventListener('click', (e) => {
-        const openDropdown = document.querySelector('.action-dropdown-clone');
-        if (openDropdown && !e.target.closest('.action-menu-btn')) {
-            openDropdown.remove();
-        }
-        if (e.target.classList.contains('modal')) {
-            closeModal(e.target.id);
-        }
-    });
+    function setupThemeDetection() {
+        const setTheme = (theme) => {
+            document.documentElement.setAttribute('data-theme', theme);
+        };
 
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            document.querySelector('.action-dropdown-clone')?.remove();
-            closeModal('confirmModal');
-            closeModal('previewModal');
+        // 1. Try to get theme from the parent window (Cheshire Cat app)
+        try {
+            const catTheme = window.parent.document.documentElement.getAttribute('data-theme');
+            if (catTheme) {
+                setTheme(catTheme);
+                return;
+            }
+        } catch (e) {
+            // Parent access might be blocked, fall through to OS preference
         }
-    });
-}
 
-// API Functions
-async function fetchData(url, options = {}) {
-    try {
-        const response = await fetch(url, options);
-        if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
-        return await response.json();
-    } catch (error) {
-        console.error(`Fetch error for ${url}:`, error);
-        showNotification(`Error: ${error.message}`, 'error');
-        return null;
+        // 2. Fallback to OS preference and add a listener for changes
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        setTheme(mediaQuery.matches ? 'dark' : 'light');
+        mediaQuery.addEventListener('change', (e) => {
+            setTheme(e.matches ? 'dark' : 'light');
+        });
     }
-}
 
-// UI Functions
-async function refreshDocuments() {
-    const contentDiv = document.getElementById('documentsContent');
-    contentDiv.innerHTML = `<div class="state-container"><div class="spinner"></div><p>Loading documents...</p></div>`;
-
-    const data = await fetchData('/custom/document/api/documents');
-    
-    if (data && data.success) {
-        allChunks = data.documents || [];
-        updateStats(data.stats);
-        renderDocuments();
-    } else {
-        contentDiv.innerHTML = `<div class="state-container"><p>Could not load documents.</p></div>`;
-        updateStats({}); // Clear stats on error
+    function setupEventListeners() {
+        searchInput?.addEventListener('input', debounce(renderDocuments, 300));
+        closeInfoPanelBtn?.addEventListener('click', closeInfoPanel);
+        infoPanelOverlay?.addEventListener('click', closeInfoPanel);
+        cancelButton?.addEventListener('click', closeConfirmModal);
+        confirmButton?.addEventListener('click', executeAction);
     }
-}
 
-function updateStats(stats = {}) {
-    document.getElementById('totalDocuments').textContent = stats.total_documents ?? '-';
-    document.getElementById('totalChunks').textContent = formatNumber(stats.total_chunks ?? 0);
-    const totalSize = allChunks.reduce((sum, doc) => sum + (doc.page_content_length || 0), 0);
-    document.getElementById('totalSize').textContent = formatBytes(totalSize);
-    document.getElementById('lastUpdate').textContent = stats.last_update ?? '-';
-}
-
-function renderDocuments() {
-    const container = document.getElementById('documentsContent');
-    if (!container) return;
-
-    const filter = document.getElementById('searchInput')?.value.toLowerCase() || '';
-    
-    const aggregatedDocs = allChunks.reduce((acc, doc) => {
-        if (!acc[doc.source]) {
-            acc[doc.source] = { source: doc.source, chunks: 0, totalSize: 0, lastUpdate: 0, chunksList: [] };
+    // --- API FUNCTIONS ---
+    async function fetchData(url, options = {}) {
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
+            return await response.json();
+        } catch (error) {
+            console.error(`Fetch error for ${url}:`, error);
+            showNotification(`Error: ${error.message}`, 'error');
+            return null;
         }
-        acc[doc.source].chunks++;
-        acc[doc.source].totalSize += doc.page_content_length;
-        acc[doc.source].lastUpdate = Math.max(acc[doc.source].lastUpdate, doc.when);
-        acc[doc.source].chunksList.push(doc);
-        return acc;
-    }, {});
-    
-    let documentsToRender = Object.values(aggregatedDocs);
-
-    if (filter) {
-        documentsToRender = documentsToRender.filter(doc => doc.source.toLowerCase().includes(filter));
     }
     
-    documentsToRender.sort((a, b) => b.lastUpdate - a.lastUpdate);
-
-    if (documentsToRender.length === 0) {
-        container.innerHTML = `<div class="state-container"><h3>No documents found</h3><p>${filter ? "Try adjusting your search filters." : "Start by uploading some documents to the Rabbit Hole."}</p></div>`;
-        return;
+    async function refreshDocuments() {
+        documentsContent.innerHTML = `<div class="state-container"><p>Loading documents...</p></div>`;
+        const data = await fetchData('/custom/document/api/documents');
+        if (data && data.success) {
+            allChunks = data.documents || [];
+            renderDocuments();
+        } else {
+            documentsContent.innerHTML = `<div class="state-container"><p>Could not load documents.</p></div>`;
+        }
     }
     
-    container.innerHTML = documentsToRender.map(doc => {
-        const fileExtension = doc.source.split('.').pop().toUpperCase();
-        const isUrl = doc.source.startsWith('http');
-        const iconType = isUrl ? 'URL' : (['PDF', 'TXT', 'DOCX'].includes(fileExtension) ? fileExtension : 'FILE');
-        const escapedSource = escapeHtml(doc.source);
+    // --- RENDERING ---
+    function renderDocuments() {
+        if (!documentsContent) return;
+        const filter = searchInput?.value.toLowerCase() || '';
 
-        return `
-            <div class="document-row">
-                <div class="col-icon">
-                    <div class="file-icon" style="background-color: ${getColorForType(iconType)};">${iconType}</div>
-                </div>
-                <div class="col-main">
-                    <span class="file-name" title="${escapedSource}">${escapedSource}</span>
-                </div>
-                <div class="col-size">${formatBytes(doc.totalSize)}</div>
-                <div class="col-chunks">${doc.chunks}</div>
-                <div class="col-date">${new Date(doc.lastUpdate * 1000).toLocaleString('en-US', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
-                <div class="col-actions">
-                    <button class="action-menu-btn" onclick="toggleActionMenu(event)">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/></svg>
-                    </button>
-                    <div class="action-dropdown">
-                        <button onclick="showPreview('${escapedSource}')">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0"/><path d="M0 8s3-5.5 8-5.5S16 8 16 8s-3 5.5-8 5.5S0 8 0 8m1.173-1.173a14.3 14.3 0 0 1 1.66-2.043C4.12 4.068 5.89 3.5 8 3.5s3.879.568 5.168 1.284a14.3 14.3 0 0 1 1.66 2.043A13.3 13.3 0 0 1 16 8c0 .58-.04 1.15-.12 1.713a14.3 14.3 0 0 1-1.66 2.043C11.879 12.432 10.11 13 8 13s-3.879-.568-5.168-1.284A14.3 14.3 0 0 1 1.213 9.713A13.3 13.3 0 0 1 0 8c0-.58.04-1.15.12-1.713zM8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8"/></svg>
-                            View Preview
+        const aggregatedDocs = allChunks.reduce((acc, doc) => {
+            if (!acc[doc.source]) {
+                acc[doc.source] = { source: doc.source, chunks: 0, totalSize: 0, chunksList: [] };
+            }
+            acc[doc.source].chunks++;
+            acc[doc.source].totalSize += doc.page_content_length;
+            acc[doc.source].chunksList.push(doc);
+            return acc;
+        }, {});
+
+        let documentsToRender = Object.values(aggregatedDocs);
+        if (filter) {
+            documentsToRender = documentsToRender.filter(doc => doc.source.toLowerCase().includes(filter));
+        }
+
+        if (documentsToRender.length === 0) {
+            documentsContent.innerHTML = `<div class="state-container"><h3>No documents found</h3></div>`;
+            return;
+        }
+
+        documentsContent.innerHTML = documentsToRender.map(doc => {
+            const fileExtension = doc.source.split('.').pop().toUpperCase();
+            const isUrl = doc.source.startsWith('http');
+            const iconType = isUrl ? 'URL' : (['PDF', 'TXT', 'DOCX'].includes(fileExtension) ? fileExtension : 'FILE');
+            const escapedSource = escapeHtml(doc.source);
+            const preview = doc.chunksList[0]?.preview || 'No preview available.';
+
+            return `
+            <div class="doc-card">
+                <div class="doc-icon" style="background-color: ${getColorForType(iconType)};">${iconType}</div>
+                <div class="doc-content-wrapper">
+                    <div class="doc-info">
+                        <h3 class="text-xl font-bold">${escapedSource}</h3>
+                        <p class="truncate text-sm mt-1 opacity-70">${escapeHtml(preview)}</p>
+                    </div>
+                    <div class="doc-actions">
+                        <button class="btn btn-error btn-xs" onclick="window.confirmRemoveDocument('${escapedSource}')">
+                            <svg viewBox="0 0 24 24" width="1.2em" height="1.2em" class="size-3"><path fill="currentColor" fill-rule="evenodd" d="M16.5 4.478v.227a49 49 0 0 1 3.878.512a.75.75 0 1 1-.256 1.478l-.209-.035l-1.005 13.07a3 3 0 0 1-2.991 2.77H8.084a3 3 0 0 1-2.991-2.77L4.087 6.66l-.209.035a.75.75 0 0 1-.256-1.478A49 49 0 0 1 7.5 4.705v-.227c0-1.564 1.213-2.9 2.816-2.951a53 53 0 0 1 3.369 0c1.603.051 2.815 1.387 2.815 2.951m-6.136-1.452a51 51 0 0 1 3.273 0C14.39 3.05 15 3.684 15 4.478v.113a50 50 0 0 0-6 0v-.113c0-.794.609-1.428 1.364-1.452m-.355 5.945a.75.75 0 1 0-1.5.058l.347 9a.75.75 0 1 0 1.499-.058zm5.48.058a.75.75 0 1 0-1.498-.058l-.347 9a.75.75 0 0 0 1.5.058z" clip-rule="evenodd"></path></svg>
+                            DELETE
                         </button>
-                        <button class="remove-btn" onclick="confirmRemoveDocument('${escapedSource}')">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/><path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM4.5 3.5h7a.5.5 0 0 0 0-1h-7a.5.5 0 0 0 0 1"/></svg>
-                            Remove
+                        <button class="btn btn-ghost btn-circle btn-sm" title="Show Info" onclick="window.showInfoPanel('${escapedSource}')">
+                             <svg viewBox="0 0 24 24" width="1.2em" height="1.2em" class="size-5"><path fill="currentColor" fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75s-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12m8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836l.042-.02a.75.75 0 0 1 .67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836l-.042.02a.75.75 0 1 1-.671-1.34zM12 9a.75.75 0 1 0 0-1.5a.75.75 0 0 0 0 1.5" clip-rule="evenodd"></path></svg>
                         </button>
                     </div>
                 </div>
+            </div>`;
+        }).join('');
+    }
+    
+    // --- INTERACTIONS & MODALS ---
+    window.showInfoPanel = (source) => {
+        const docData = allChunks.filter(c => c.source === source);
+        const aggregated = docData.reduce((acc, doc) => {
+            acc.totalSize += doc.page_content_length;
+            acc.chunks.push(doc);
+            return acc;
+        }, { totalSize: 0, chunks: [] });
+
+        infoPanelTitle.innerText = 'Document Info';
+        infoPanelBody.innerHTML = `
+            <div class="info-section">
+                <h4>Source</h4>
+                <p>${escapeHtml(source)}</p>
+            </div>
+            <div class="info-section">
+                <h4>Statistics</h4>
+                <ul>
+                    <li><strong>Total Chunks:</strong> ${aggregated.chunks.length}</li>
+                    <li><strong>Total Size:</strong> ${formatBytes(aggregated.totalSize)}</li>
+                </ul>
+            </div>
+            <div class="info-section">
+                <h4>Chunks Content Preview</h4>
+                <ul>
+                    ${aggregated.chunks.map(c => `<li><strong>Chunk ${c.chunk_index || 0}:</strong> ${escapeHtml(c.preview || '')}</li>`).join('')}
+                </ul>
             </div>
         `;
-    }).join('');
-}
+        infoPanelOverlay.classList.add('visible');
+        infoPanel.classList.add('visible');
+    };
 
-
-// Action and Modal Functions
-function toggleActionMenu(event) {
-    event.stopPropagation();
-    
-    // --- JS FIX v3: DETACHED DROPDOWN ---
-    const button = event.currentTarget;
-    const existingDropdown = document.querySelector('.action-dropdown-clone');
-
-    // If a dropdown exists and we clicked its button again, remove it.
-    if (existingDropdown && existingDropdown.dataset.sourceButton === button.parentElement.parentElement.outerHTML) {
-        existingDropdown.remove();
-        return;
-    }
-    
-    // Remove any other open dropdown
-    if(existingDropdown) {
-        existingDropdown.remove();
+    function closeInfoPanel() {
+        infoPanel.classList.remove('visible');
+        infoPanelOverlay.classList.remove('visible');
     }
 
-    const templateDropdown = button.nextElementSibling;
-    const newDropdown = templateDropdown.cloneNode(true);
-    newDropdown.classList.add('action-dropdown-clone');
-    // Store which button opened this dropdown to handle toggling
-    newDropdown.dataset.sourceButton = button.parentElement.parentElement.outerHTML; 
+    window.confirmRemoveDocument = (source) => {
+        pendingAction = { type: 'remove', source };
+        confirmTitle.innerText = `Remove Document`;
+        confirmBody.innerHTML = `Are you sure you want to remove <strong>${escapeHtml(source)}</strong>?`;
+        confirmModal.classList.add('visible');
+    };
 
-    document.body.appendChild(newDropdown);
-
-    const buttonRect = button.getBoundingClientRect();
-    const dropdownRect = newDropdown.getBoundingClientRect();
-    
-    let top = buttonRect.bottom + 5;
-    let left = buttonRect.left - dropdownRect.width + buttonRect.width;
-
-    // Reposition if it goes off-screen
-    if (top + dropdownRect.height > window.innerHeight) {
-        top = buttonRect.top - dropdownRect.height - 5;
-    }
-    if (left < 0) {
-        left = buttonRect.left;
+    function closeConfirmModal() {
+        confirmModal.classList.remove('visible');
+        pendingAction = null;
     }
 
-    newDropdown.style.top = `${top}px`;
-    newDropdown.style.left = `${left}px`;
-}
-
-function showPreview(source) {
-    document.querySelector('.action-dropdown-clone')?.remove();
-    const docData = allChunks.filter(c => c.source === source);
-    const previewContent = docData
-        .sort((a,b) => a.chunk_index - b.chunk_index)
-        .map(chunk => `--- CHUNK ${chunk.chunk_index != null ? chunk.chunk_index : 'N/A'} ---\n${chunk.preview || 'Preview not available.'}`)
-        .join('\n\n');
-
-    document.getElementById('previewModalTitle').innerText = `Preview: ${source}`;
-    document.getElementById('previewModalBody').innerText = previewContent;
-    openModal('previewModal');
-}
-
-function confirmRemoveDocument(source) {
-    document.querySelector('.action-dropdown-clone')?.remove();
-    openModal(
-        'confirmModal',
-        'Remove Document',
-        `Are you sure you want to remove <strong>"${escapeHtml(source)}"</strong>? This action is irreversible.`,
-        'remove',
-        source
-    );
-}
-
-function confirmClearAll() {
-    document.querySelector('.action-dropdown-clone')?.remove();
-    const docCount = new Set(allChunks.map(c => c.source)).size;
-    openModal(
-        'confirmModal',
-        'Clear Rabbit Hole',
-        `<strong>WARNING:</strong> You are about to remove all <strong>${docCount}</strong> documents from the Rabbit Hole. This action is irreversible.`,
-        'clear'
-    );
-}
-
-function openModal(modalId, title, body, actionType, source = null) {
-    const modal = document.getElementById(modalId);
-    if (modalId === 'confirmModal') {
-        pendingAction = { type: actionType, source };
-        modal.querySelector('.modal-title').textContent = title;
-        modal.querySelector('.modal-body').innerHTML = body;
-    }
-    modal.classList.add('visible');
-}
-
-function closeModal(modalId) {
-    document.getElementById(modalId)?.classList.remove('visible');
-    if (modalId === 'confirmModal') pendingAction = null;
-}
-
-async function executeAction() {
-    if (!pendingAction) return;
-    const { type, source } = pendingAction;
-    closeModal('confirmModal');
-    
-    let result;
-    if (type === 'remove') {
-        result = await fetchData('/custom/document/api/remove', {
+    async function executeAction() {
+        if (!pendingAction) return;
+        const { type, source } = pendingAction;
+        
+        const result = await fetchData('/custom/document/api/remove', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ source })
         });
-    } else if (type === 'clear') {
-        result = await fetchData('/custom/document/api/clear', { method: 'POST' });
-    }
+        
+        closeConfirmModal();
 
-    if (result) {
-        showNotification(result.message, result.success ? 'success' : 'error');
-        if (result.success) {
-            // Give a moment for the notification to appear before refreshing
+        if (result && result.success) {
+            showNotification(result.message, 'success');
             setTimeout(refreshDocuments, 300);
+        } else {
+            showNotification(result?.message || 'An error occurred', 'error');
         }
     }
-}
 
-// Utility Functions
-const formatNumber = (num = 0) => num.toLocaleString('en-US');
-const formatBytes = (bytes = 0, decimals = 2) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-};
-
-const escapeHtml = (text = '') => {
-    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-    return text.replace(/[&<>"']/g, (m) => map[m]);
-};
-
-function getColorForType(type) {
-    const colors = { 'PDF': '#D32F2F', 'TXT': '#757575', 'DOCX': '#1976D2', 'URL': '#388E3C', 'FILE': '#512DA8' };
-    return colors[type] || colors['FILE'];
-}
-
-function showNotification(message, type = 'info') {
-    const container = document.getElementById('notifications');
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.innerHTML = message;
-    container.appendChild(notification);
-    setTimeout(() => {
-        notification.style.opacity = '0';
-        notification.style.transform = 'translateX(100%)';
-        setTimeout(() => notification.remove(), 500);
-    }, 5000);
-}
-
-const debounce = (func, wait) => {
-    let timeout;
-    return (...args) => {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), wait);
+    // --- UTILITY FUNCTIONS ---
+    const formatBytes = (bytes = 0, decimals = 2) => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     };
-};
+    const escapeHtml = (text = '') => {
+        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+        return text.replace(/[&<>"']/g, (m) => map[m]);
+    };
+    function getColorForType(type) {
+        const colors = { 'PDF': '#D32F2F', 'TXT': '#757575', 'DOCX': '#1976D2', 'URL': '#388E3C', 'FILE': '#512DA8' };
+        return colors[type] || colors['FILE'];
+    }
+    function showNotification(message, type = 'success') {
+        const container = document.getElementById('notifications');
+        const alertClass = type === 'error' ? 'alert-error' : 'alert-success';
+        const notification = document.createElement('div');
+        notification.className = `alert ${alertClass} shadow-lg`;
+        notification.innerHTML = `<span>${message}</span>`;
+        container.appendChild(notification);
+        setTimeout(() => notification.remove(), 5000);
+    }
+    const debounce = (func, wait) => {
+        let timeout;
+        return (...args) => {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), wait);
+        };
+    };
+
+    initializeApp();
+});
