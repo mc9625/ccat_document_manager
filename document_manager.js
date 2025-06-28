@@ -1,4 +1,4 @@
-// Cheshire Cat Document Manager - Native UI v3.0
+// Cheshire Cat Document Manager - Native UI v3.1 (Admin Only)
 document.addEventListener('DOMContentLoaded', () => {
 
     let allChunks = [];
@@ -56,25 +56,57 @@ document.addEventListener('DOMContentLoaded', () => {
         confirmButton?.addEventListener('click', executeAction);
     }
 
-    // --- API FUNCTIONS ---
+    // --- API FUNCTIONS - ENDPOINT AGGIORNATI ---
     async function fetchData(url, options = {}) {
         try {
             const response = await fetch(url, options);
-            if (!response.ok) throw new Error(`Network response was not ok: ${response.statusText}`);
-            return await response.json();
+            if (!response.ok) {
+                // Gestisce errori di permessi specificamente
+                if (response.status === 403 || response.status === 401) {
+                    throw new Error('Access denied: Administrator privileges required');
+                }
+                throw new Error(`Network response was not ok: ${response.statusText}`);
+            }
+            const data = await response.json();
+            
+            // Controlla se il server ha restituito un errore di permessi
+            if (!data.success && data.error && data.error.includes('Access denied')) {
+                throw new Error(data.error);
+            }
+            
+            return data;
         } catch (error) {
             console.error(`Fetch error for ${url}:`, error);
             showNotification(`Error: ${error.message}`, 'error');
+            
+            // Se è un errore di permessi, mostra messaggio speciale
+            if (error.message.includes('Access denied')) {
+                documentsContent.innerHTML = `
+                    <div class="state-container">
+                        <div class="alert alert-warning">
+                            <svg viewBox="0 0 24 24" width="1.5em" height="1.5em" class="size-6 shrink-0"><path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12c5.16-1.26 9-6.45 9-12V5z"/></svg>
+                            <div>
+                                <h3 class="font-bold">Access Denied</h3>
+                                <div class="text-sm">This plugin requires administrator privileges.</div>
+                            </div>
+                        </div>
+                    </div>`;
+            }
+            
             return null;
         }
     }
     
     async function refreshDocuments() {
         documentsContent.innerHTML = `<div class="state-container"><p>Loading documents...</p></div>`;
-        const data = await fetchData('/custom/document/api/documents');
+        // ENDPOINT AGGIORNATO: da /document a /documents
+        const data = await fetchData('/custom/documents/api/documents');
         if (data && data.success) {
             allChunks = data.documents || [];
             renderDocuments();
+        } else if (data === null) {
+            // Errore già gestito in fetchData
+            return;
         } else {
             documentsContent.innerHTML = `<div class="state-container"><p>Could not load documents.</p></div>`;
         }
@@ -101,7 +133,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (documentsToRender.length === 0) {
-            documentsContent.innerHTML = `<div class="state-container"><h3>No documents found</h3></div>`;
+            const message = filter ? 
+                `<h3>No documents found for "${escapeHtml(filter)}"</h3>` :
+                `<h3>No documents found</h3><p>Upload some documents to the Rabbit Hole to get started.</p>`;
+            documentsContent.innerHTML = `<div class="state-container">${message}</div>`;
             return;
         }
 
@@ -119,6 +154,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="doc-info">
                         <h3 class="text-xl font-bold">${escapedSource}</h3>
                         <p class="truncate text-sm mt-1 opacity-70">${escapeHtml(preview)}</p>
+                        <div class="text-xs mt-2 opacity-60">
+                            ${doc.chunks} chunks • ${formatBytes(doc.totalSize)}
+                        </div>
                     </div>
                     <div class="doc-actions">
                         <button class="btn btn-error btn-xs" onclick="window.confirmRemoveDocument('${escapedSource}')">
@@ -154,12 +192,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 <ul>
                     <li><strong>Total Chunks:</strong> ${aggregated.chunks.length}</li>
                     <li><strong>Total Size:</strong> ${formatBytes(aggregated.totalSize)}</li>
+                    <li><strong>Average Chunk Size:</strong> ${formatBytes(aggregated.totalSize / aggregated.chunks.length)}</li>
                 </ul>
             </div>
             <div class="info-section">
                 <h4>Chunks Content Preview</h4>
                 <ul>
-                    ${aggregated.chunks.map(c => `<li><strong>Chunk ${c.chunk_index || 0}:</strong> ${escapeHtml(c.preview || '')}</li>`).join('')}
+                    ${aggregated.chunks.slice(0, 5).map(c => `<li><strong>Chunk ${c.chunk_index || 0}:</strong> ${escapeHtml(c.preview || '')}</li>`).join('')}
+                    ${aggregated.chunks.length > 5 ? `<li><em>... and ${aggregated.chunks.length - 5} more chunks</em></li>` : ''}
                 </ul>
             </div>
         `;
@@ -175,7 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.confirmRemoveDocument = (source) => {
         pendingAction = { type: 'remove', source };
         confirmTitle.innerText = `Remove Document`;
-        confirmBody.innerHTML = `Are you sure you want to remove <strong>${escapeHtml(source)}</strong>?`;
+        confirmBody.innerHTML = `Are you sure you want to remove <strong>${escapeHtml(source)}</strong>? This action cannot be undone.`;
         confirmModal.classList.add('visible');
     };
 
@@ -188,7 +228,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!pendingAction) return;
         const { type, source } = pendingAction;
         
-        const result = await fetchData('/custom/document/api/remove', {
+        // ENDPOINT AGGIORNATO: da /document a /documents
+        const result = await fetchData('/custom/documents/api/remove', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ source })
@@ -199,9 +240,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result && result.success) {
             showNotification(result.message, 'success');
             setTimeout(refreshDocuments, 300);
-        } else {
+        } else if (result) {
             showNotification(result?.message || 'An error occurred', 'error');
         }
+        // Se result è null, l'errore è già stato gestito in fetchData
     }
 
     // --- UTILITY FUNCTIONS ---
@@ -213,14 +255,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     };
+    
     const escapeHtml = (text = '') => {
         const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
         return text.replace(/[&<>"']/g, (m) => map[m]);
     };
+    
     function getColorForType(type) {
-        const colors = { 'PDF': '#D32F2F', 'TXT': '#757575', 'DOCX': '#1976D2', 'URL': '#388E3C', 'FILE': '#512DA8' };
+        const colors = { 
+            'PDF': '#D32F2F', 
+            'TXT': '#757575', 
+            'DOCX': '#1976D2', 
+            'URL': '#388E3C', 
+            'FILE': '#512DA8' 
+        };
         return colors[type] || colors['FILE'];
     }
+    
     function showNotification(message, type = 'success') {
         const container = document.getElementById('notifications');
         const alertClass = type === 'error' ? 'alert-error' : 'alert-success';
@@ -230,6 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
         container.appendChild(notification);
         setTimeout(() => notification.remove(), 5000);
     }
+    
     const debounce = (func, wait) => {
         let timeout;
         return (...args) => {
