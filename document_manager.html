@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Manager - Cheshire Cat AI</title>
+    <link rel="stylesheet" href="/custom/document/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Main Header -->
+        <header class="page-header">
+            <div>
+                <h1 class="page-title">Document Manager</h1>
+                <p class="page-subtitle">Manage the documents stored in your Cheshire Cat's Rabbit Hole.</p>
+            </div>
+        </header>
+
+        <!-- Unified Info and Controls Bar -->
+        <section class="info-bar">
+            <div class="stats-container">
+                <div class="stat-item"><strong>Docs:</strong> <span id="totalDocuments">-</span></div>
+                <div class="stat-item"><strong>Chunks:</strong> <span id="totalChunks">-</span></div>
+                <div class="stat-item"><strong>Size:</strong> <span id="totalSize">-</span></div>
+                <div class="stat-item"><strong>Updated:</strong> <span id="lastUpdate">-</span></div>
+            </div>
+            <div class="controls-container">
+                <div class="search-wrapper">
+                    <input type="text" class="search-input" id="searchInput" placeholder="Search by name...">
+                </div>
+                <button class="btn btn-primary" id="refreshButton" title="Refresh">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/></svg>
+                </button>
+                <button class="btn btn-danger" id="clearAllButton" title="Clear All Documents">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/><path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM4.5 3.5h7a.5.5 0 0 0 0-1h-7a.5.5 0 0 0 0 1"/></svg>
+                </button>
+            </div>
+        </section>
+
+        <!-- Document List Container -->
+        <main class="document-list-container">
+            <div class="document-list-header">
+                <div class="col-icon"></div>
+                <div class="col-main">Document</div>
+                <div class="col-size">Size</div>
+                <div class="col-chunks">Chunks</div>
+                <div class="col-date">Upload Date</div>
+                <div class="col-actions"></div>
+            </div>
+            <div id="documentsContent">
+                <!-- Document rows will be inserted here by JS -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <h2 class="modal-title" id="modalTitle">Confirm Action</h2>
+            <p class="modal-body" id="modalBody">Are you sure?</p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('confirmModal')">Cancel</button>
+                <button class="btn btn-danger" id="confirmButton" onclick="executeAction()">Confirm</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="previewModal" class="modal">
+        <div class="modal-content modal-lg">
+            <h2 class="modal-title" id="previewModalTitle">Document Preview</h2>
+            <div class="modal-body" id="previewModalBody"></div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" style="width: auto; padding: 0 1rem;" onclick="closeModal('previewModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="notifications"></div>
+
+    <script src="/custom/document/script.js"></script>
+</body>
+</html>
