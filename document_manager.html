@@ -53,12 +53,24 @@
         <div class="flex w-full flex-col gap-8 self-center md:w-3/4 grow p-2 md:p-4">
             <!-- Search Section -->
             <div class="form-control w-full">
-                <label class="label px-0"><span class="label-text font-semibold">Search for a document</span></label>
-                <div class="relative w-full">
-                    <input type="text" id="searchInput" class="input input-sm input-primary w-full shadow-lg !outline-2 !transition-all" placeholder="Enter a document name...">
-                    <button class="btn btn-square btn-ghost btn-sm absolute right-0 top-0" aria-label="Search">
-                        <svg viewBox="0 0 20 20" width="1.2em" height="1.2em" class="size-5"><path fill="currentColor" fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11M2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9" clip-rule="evenodd"></path></svg>
-                    </button>
+                <label class="label px-0"><span class="label-text font-semibold">Search documents</span></label>
+                <div class="flex gap-2">
+                    <div class="relative flex-1">
+                        <input type="text" id="searchInput" class="input input-sm input-primary w-full shadow-lg !outline-2 !transition-all" placeholder="Enter a document name...">
+                        <button class="btn btn-square btn-ghost btn-sm absolute right-0 top-0" aria-label="Search">
+                            <svg viewBox="0 0 20 20" width="1.2em" height="1.2em" class="size-5"><path fill="currentColor" fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11a5.5 5.5 0 0 0 0-11M2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9" clip-rule="evenodd"></path></svg>
+                        </button>
+                    </div>
+                    <div class="relative flex-1">
+                        <input type="text" id="metadataSearchInput" class="input input-sm input-secondary w-full shadow-lg !outline-2 !transition-all" placeholder="Filter by metadata...">
+                        <button class="btn btn-square btn-ghost btn-sm absolute right-0 top-0" aria-label="Filter metadata">
+                            <svg viewBox="0 0 20 20" width="1.2em" height="1.2em" class="size-5"><path fill="currentColor" d="M2.75 3a.75.75 0 0 0 0 1.5h14.5a.75.75 0 0 0 0-1.5zM2 7.75a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 7.75M2.75 11.5a.75.75 0 0 0 0 1.5h6.5a.75.75 0 0 0 0-1.5z"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="label">
+                    <span class="label-text-alt">Search by filename or content</span>
+                    <span class="label-text-alt">Filter by metadata values (titles, categories, etc.)</span>
                 </div>
             </div>
 
