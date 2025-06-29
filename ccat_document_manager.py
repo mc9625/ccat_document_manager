@@ -9,7 +9,7 @@ Version 2.0.2 – AUTH GATE FIX
 
 from __future__ import annotations
 
-import os, time, inspect, json, re
+import base64, os, time, inspect, json, re
 from pathlib import Path
 from unicodedata import normalize
 from collections import Counter
@@ -24,7 +24,7 @@ from fastapi import status
 from fastapi.responses import HTMLResponse, Response, JSONResponse
 from pydantic import BaseModel, Field
 
-__version__ = "2.0.2"
+__version__ = "2.0.3"
 __author__ = "Cheshire Cat Community"
 __description__ = "Production-ready document management with hardened authentication"
 
@@ -75,10 +75,10 @@ security = SecurityManager()
 # ───────────────────────────── SETTINGS MODEL ─────────────────────────
 
 class DocumentManagerSettings(BaseModel):
+    # NOTE: removed *admin_only_access* flag – we always enforce JWT/PLUGINS‑EDIT.
     max_documents_per_page: int = Field(25, ge=5, le=100, title="Documents per page")
     show_document_preview: bool = Field(True, title="Show document preview")
     preview_length: int = Field(200, ge=50, le=1000, title="Preview length (characters)")
-    admin_only_access: bool = Field(True, title="Admin Only Access")
     admin_user_ids: str = Field("admin", title="Admin User IDs")
     enable_search_optimization: bool = Field(True, title="Optimize Search Performance")
     memory_chunk_limit: int = Field(1000, ge=100, le=10000, title="Memory Chunk Limit")
@@ -428,31 +428,39 @@ def format_document_list(documents: List[Dict], show_preview: bool = True, previ
     
     return output
 
+STATIC_PATH = Path(__file__).parent
+
 def _read_static(fname: str) -> str:
-    """Load static asset files."""
-    here = Path(__file__).parent
     try:
-        return (here / fname).read_text("utf-8")
-    except Exception as e:
-        log.error(f"Static file {fname} error: {e}")
-        return f"/* error loading {fname}: {e} */"
+        return (STATIC_PATH / fname).read_text("utf-8")
+    except Exception as exc:
+        log.error(f"Static file {fname} error: {exc}")
+        return f"/* error loading {fname}: {exc} */"
+
+# All static + API endpoints reuse the same dependency.
+AdminDepends = check_permissions(AuthResource.PLUGINS, AuthPermission.EDIT)
 
 # ───────────────────────────── BRUTAL MANUAL AUTH ─────────────────────
 
-def _get_jwt_from_request(request: Request) -> tuple[bool, str | None]:
-    """Ritorna (found, token) cercando prima header poi cookie."""
-    # 1. Authorization: Bearer ...
-    auth = request.headers.get("authorization", "")
-    if auth.startswith("Bearer "):
-        return True, auth[7:]
+def _get_jwt_from_request(request: Request) -> Optional[str]:
+    """Return JWT looking at header, cookie, *or* ?token=… query string."""
+    hdr = request.headers.get("authorization", "")
+    if hdr.startswith("Bearer "):
+        return hdr[7:]
+    if token := request.cookies.get("ccat_user_token"):
+        return token
+    if token := request.query_params.get("token"):
+        return token
+    return None
 
-    # 2. cookie ccat_user_token
-    token = request.cookies.get("ccat_user_token")
-    if token:
-        return True, token
-
-    return False, None
-
+def _jwt_has_plugin_edit(token: str) -> bool:
+    try:
+        head, payload_b64, sig = token.split(".")
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload_b64))
+        return "EDIT" in data.get("permissions", {}).get("PLUGINS", [])
+    except Exception:
+        return False
 
 def _brutal_auth_check(request: Request) -> tuple[bool, str]:
     """
@@ -482,27 +490,24 @@ def _brutal_auth_check(request: Request) -> tuple[bool, str]:
 
 
 @endpoint.get("/documents")
-def web_ui(request: Request):
-    ok, msg = _brutal_auth_check(request)        # <— controllo sul JWT *di questa HTTP call*
-    if not ok:
-        # niente token o token senza PLUGINS/EDIT ➜ 403
-        return JSONResponse(
-            {"detail": f"Forbidden: {msg}"},
-            status_code=status.HTTP_403_FORBIDDEN,
-        )
+def web_ui(request: Request, stray = AdminDepends):
+    """Return HTML only if caller has PLUGINS/EDIT (checked by dependency)."""
+    jwt = _get_jwt_from_request(request)
+    if not jwt or not _jwt_has_plugin_edit(jwt):
+        return JSONResponse({"detail": "Forbidden"}, status_code=status.HTTP_403_FORBIDDEN)
 
-    user = msg.replace("Admin user:", "").strip()
-    log.info(f"✅ Serving Document Manager UI to admin '{user}'")
+    log.info(f"✅ Serving Document Manager UI to admin")
     return HTMLResponse(_read_static("document_manager.html"))
 
+
 @endpoint.get("/documents/style.css")
-def css(stray = check_permissions(AuthResource.PLUGINS, AuthPermission.EDIT)):
-    """Serve CSS file - BRUTAL MANUAL AUTH."""
+def css(stray = AdminDepends):
+    """Serve CSS file """
     return Response(_read_static("document_manager.css"), media_type="text/css")
 
 @endpoint.get("/documents/script.js")
-def js(stray = check_permissions(AuthResource.PLUGINS, AuthPermission.EDIT)):
-    """Serve JavaScript file - BRUTAL MANUAL AUTH."""
+def js(stray = AdminDepends):
+    """Serve JavaScript file"""
     return Response(_read_static("document_manager.js"), media_type="application/javascript")
 
 # ---------------------------------------------------------------------
@@ -648,39 +653,18 @@ def api_document_stats(request: Request):
         return {"success": False, "error": str(e)}
 
 @endpoint.post("/documents/api/remove")
-def api_remove_document(request: Request, request_data: Dict[str, str]):
-    """Remove a specific document. BRUTAL AUTH."""
-    is_authorized, message = _brutal_auth_check(request)
-    
-    if not is_authorized:
-        return {"success": False, "message": f"Access denied: {message}"}
-    
-    try:
-        source = request_data.get("source", "").strip()
-        if not source:
-            return {"success": False, "message": "Source parameter is required"}
-        
-        # Create dummy cat object
-        class DummyCat:
-            pass
-        cat = DummyCat()
-        
-        deleted_count = doc_ops.delete_document_by_source(cat, source)
-        
-        if deleted_count == 0:
-            return {"success": False, "message": f"Document '{source}' not found"}
-        
-        log.warning(f"🗑️ Document '{source}' deleted via API ({deleted_count} chunks)")
-        
-        return {
-            "success": True,
-            "message": f"Document '{source}' removed ({deleted_count} chunks)",
-            "deleted_chunks": deleted_count
-        }
-        
-    except Exception as e:
-        log.error(f"API remove error: {e}")
-        return {"success": False, "message": str(e)}
+def api_remove_document(
+    request: Request,
+    stray = AdminDepends,
+    request_data: Dict[str, str] = Body(...),   # 🔧 FIX – parse JSON body
+):
+    source = request_data.get("source", "").strip()
+    if not source:
+        return {"success": False, "message": "Source parameter is required"}
+    deleted = doc_ops.delete_document_by_source(stray, source)
+    if not deleted:
+        return {"success": False, "message": f"Document '{source}' not found"}
+    return {"success": True, "message": f"Removed {deleted} chunks", "deleted_chunks": deleted}
 
 @endpoint.post("/documents/api/clear")
 def api_clear_all_documents(request: Request):

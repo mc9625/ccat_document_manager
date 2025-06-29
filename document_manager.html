@@ -82,13 +82,28 @@
     </div>
 
     <!-- Confirmation Dialog for Deletion -->
-    <div id="confirmModal" class="modal">
-        <div class="modal-box">
-            <h3 id="confirmTitle" class="text-lg font-bold">Remove Document</h3>
-            <p id="confirmBody" class="py-4">Are you sure you want to remove this document?</p>
-            <div class="modal-action">
-                <button id="cancelButton" class="btn btn-ghost">No</button>
-                <button id="confirmButton" class="btn btn-error">Yes</button>
+    <div id="confirmOverlay" class="fixed inset-0 bg-black/25 z-40 hidden"></div>
+        <!-- Panel wrapper (centering helper) -->
+    <div id="confirmWrapper"
+        class="fixed inset-0 z-50 overflow-y-auto hidden">
+        <div class="flex min-h-full items-center justify-center p-4 text-center">
+            <!-- Dialog panel -->
+            <div id="confirmPanel"
+                class="w-fit max-w-lg overflow-hidden rounded-lg bg-base-100 p-4 shadow-xl transition-all">
+            <div class="flex flex-col items-center justify-center gap-4 text-neutral">
+                <h3 id="confirmPanelTitle" class="text-lg font-bold text-primary">Remove document</h3>
+                <p id="confirmPanelBody">
+                <!-- riempito via JS -->
+                </p>
+                <div class="flex items-center justify-center gap-2">
+                <button id="confirmCancelBtn" class="btn btn-outline btn-sm">
+                    No
+                </button>
+                <button id="confirmOkBtn" class="btn btn-error btn-sm">
+                    Yes
+                </button>
+                </div>
+            </div>
             </div>
         </div>
     </div>

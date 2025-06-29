@@ -1,294 +1,207 @@
-// Cheshire Cat Document Manager - Native UI v3.1 (Admin Only)
+/* Cheshire Cat AI – Document Manager UI v4.0 (admin only) */
 document.addEventListener('DOMContentLoaded', () => {
 
-    let allChunks = [];
-    let pendingAction = null;
+  /* ───────────── utilities ───────────── */
+  const $ = id => document.getElementById(id);
 
-    const searchInput = document.getElementById('searchInput');
-    const documentsContent = document.getElementById('documentsContent');
-    const infoPanel = document.getElementById('infoPanel');
-    const infoPanelOverlay = document.getElementById('infoPanel-overlay');
-    const infoPanelTitle = document.getElementById('infoPanelTitle');
-    const infoPanelBody = document.getElementById('infoPanelBody');
-    const closeInfoPanelBtn = document.getElementById('closeInfoPanel');
-    const confirmModal = document.getElementById('confirmModal');
-    const confirmTitle = document.getElementById('confirmTitle');
-    const confirmBody = document.getElementById('confirmBody');
-    const confirmButton = document.getElementById('confirmButton');
-    const cancelButton = document.getElementById('cancelButton');
-    
-    // --- INITIALIZATION ---
-    function initializeApp() {
-        setupThemeDetection();
-        refreshDocuments();
-        setupEventListeners();
+  const debounce = (fn, ms = 300) => {
+    let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn.apply(this, a), ms); };
+  };
+
+  const bytes = (b = 0, d = 2) => {
+    if (!b) return '0 Bytes';
+    const k = 1024, i = Math.floor(Math.log(b) / Math.log(k));
+    return (b / Math.pow(k, i)).toFixed(d) + ' ' + ['Bytes', 'KB', 'MB', 'GB', 'TB'][i];
+  };
+
+  const escape = s =>
+    (s ?? '').replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[c]);
+
+  const colorFor = t =>
+    ({ PDF:'#D32F2F', TXT:'#757575', DOCX:'#1976D2', URL:'#388E3C', FILE:'#512DA8' }[t] || '#512DA8');
+
+  const notify = (msg, kind = 'success') => {
+    const host = $('notifications'); if (!host) return;
+    const el = document.createElement('div');
+    el.className = `alert ${kind === 'error' ? 'alert-error' : 'alert-success'} shadow-lg`;
+    el.innerHTML = `<span>${msg}</span>`;
+    host.appendChild(el); setTimeout(() => el.remove(), 5_000);
+  };
+
+  /* ───────────── state ───────────── */
+  let chunks = [];
+  let pendingSrc = null;
+
+  /* ───────────── DOM refs ─────────── */
+  const searchInput  = $('searchInput');
+  const listHost     = $('documentsContent');
+
+  /* info panel */
+  const infoOverlay  = $('infoPanel-overlay');
+  const infoPanel    = $('infoPanel');
+  const infoTitle    = $('infoPanelTitle');
+  const infoBody     = $('infoPanelBody');
+  $('closeInfoPanel')?.addEventListener('click', closeInfo);
+  infoOverlay       ?.addEventListener('click', closeInfo);
+
+  /* confirm modal */
+  const ovl    = $('confirmOverlay');
+  const wrap   = $('confirmWrapper');
+  const cTitle = $('confirmPanelTitle');
+  const cBody  = $('confirmPanelBody');
+  const cYes   = $('confirmOkBtn');
+  const cNo    = $('confirmCancelBtn');
+
+  cNo ?.addEventListener('click', closeConfirm);
+  cYes?.addEventListener('click', executeDeletion);
+
+  /* expose for inline buttons */
+  window.openConfirmModal = openConfirmModal;
+  window.showInfoPanel    = showInfoPanel;
+
+  /* ───────────── bootstrap ─────────── */
+  syncTheme();
+  searchInput?.addEventListener('input', debounce(renderList));
+  refreshList();
+
+  /* ───────────── theme sync ────────── */
+  function syncTheme () {
+    const apply = t => document.documentElement.setAttribute('data-theme', t);
+    try {
+      const parentTheme = window.parent.document.documentElement.getAttribute('data-theme');
+      if (parentTheme) return apply(parentTheme);
+    } catch {/* cross-origin */}
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    apply(mq.matches ? 'dark' : 'light');
+    mq.addEventListener('change', e => apply(e.matches ? 'dark' : 'light'));
+  }
+
+  /* ───────────── confirm modal ─────── */
+  function openConfirmModal (source) {
+    pendingSrc = source;
+    cTitle.textContent = 'Remove document';
+    cBody.innerHTML =
+      `Are you sure you want to remove <span class="font-bold">${escape(source)}</span>?<br>` +
+      'This action cannot be undone.';
+    ovl .classList.remove('hidden');
+    wrap.classList.remove('hidden');
+  }
+
+  function closeConfirm () {
+    ovl .classList.add('hidden');
+    wrap.classList.add('hidden');
+    pendingSrc = null;
+  }
+
+  async function executeDeletion () {
+    if (!pendingSrc) return;
+    const src = pendingSrc; closeConfirm();
+
+    /* optimistic update */
+    chunks = chunks.filter(c => c.source !== src); renderList();
+
+    try {
+      const res = await api('/custom/documents/api/remove', {
+        method : 'POST',
+        headers: { 'Content-Type':'application/json' },
+        body   : JSON.stringify({ source: src })
+      });
+      if (!res?.success) throw new Error(res?.message || 'Unknown error');
+      notify(res.message);
+    } catch (e) {
+      notify('Deletion failed: ' + e.message, 'error');
+      refreshList();                            // rollback from backend
+    }
+  }
+
+  /* ───────────── info panel ────────── */
+  function showInfoPanel (source) {
+    const docs  = chunks.filter(c => c.source === source);
+    const total = docs.reduce((s, c) => s + c.page_content_length, 0);
+
+    infoTitle.textContent = 'Document info';
+    infoBody.innerHTML = `
+      <div class="info-section"><h4>Source</h4><p>${escape(source)}</p></div>
+      <div class="info-section"><h4>Statistics</h4>
+        <ul>
+          <li><b>Total chunks:</b> ${docs.length}</li>
+          <li><b>Total size:</b> ${bytes(total)}</li>
+          <li><b>Average chunk:</b> ${bytes(total / docs.length)}</li>
+        </ul>
+      </div>
+      <div class="info-section"><h4>Preview</h4>
+        <ul>
+          ${docs.slice(0,5).map(c => `<li><b>Chunk ${c.chunk_index ?? 0}:</b> ${escape(c.preview || '')}</li>`).join('')}
+          ${docs.length > 5 ? `<li><em>…and ${docs.length - 5} more</em></li>` : ''}
+        </ul>
+      </div>`;
+    infoOverlay.classList.add('visible');
+    infoPanel  .classList.add('visible');
+  }
+
+  function closeInfo () {
+    infoPanel  .classList.remove('visible');
+    infoOverlay.classList.remove('visible');
+  }
+
+  /* ───────────── API helpers ───────── */
+  async function api (url, opt = {}) {
+    try {
+      const r = await fetch(url, opt);
+      if (!r.ok) {
+        if ([401,403].includes(r.status)) throw new Error('Access denied: admin rights required');
+        throw new Error(`HTTP ${r.status}`);
+      }
+      const d = await r.json();
+      if (d?.error?.includes('Access denied')) throw new Error(d.error);
+      return d;
+    } catch (e) { console.error(e); notify(e.message, 'error'); return null; }
+  }
+
+  async function refreshList () {
+    listHost.innerHTML = `<div class="state-container"><p>Loading documents…</p></div>`;
+    const data = await api('/custom/documents/api/documents');
+    if (data?.success) { chunks = data.documents || []; renderList(); }
+    else listHost.innerHTML = `<div class="state-container"><p>Could not load documents.</p></div>`;
+  }
+
+  /* ───────────── rendering ─────────── */
+  function renderList () {
+    const term = (searchInput?.value || '').toLowerCase();
+    const grouped = {};
+    for (const c of chunks) {
+      const g = grouped[c.source] ?? (grouped[c.source] = { src:c.source, n:0, size:0, list:[] });
+      g.n++; g.size += c.page_content_length; g.list.push(c);
+    }
+    let docs = Object.values(grouped);
+    if (term) docs = docs.filter(d => d.src.toLowerCase().includes(term));
+
+    if (!docs.length) {
+      listHost.innerHTML =
+        `<div class="state-container"><h3>${term ? `No documents found for “${escape(term)}”` : 'No documents found'}</h3></div>`;
+      return;
     }
 
-    function setupThemeDetection() {
-        const setTheme = (theme) => {
-            document.documentElement.setAttribute('data-theme', theme);
-        };
-
-        // 1. Try to get theme from the parent window (Cheshire Cat app)
-        try {
-            const catTheme = window.parent.document.documentElement.getAttribute('data-theme');
-            if (catTheme) {
-                setTheme(catTheme);
-                return;
-            }
-        } catch (e) {
-            // Parent access might be blocked, fall through to OS preference
-        }
-
-        // 2. Fallback to OS preference and add a listener for changes
-        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        setTheme(mediaQuery.matches ? 'dark' : 'light');
-        mediaQuery.addEventListener('change', (e) => {
-            setTheme(e.matches ? 'dark' : 'light');
-        });
-    }
-
-    function setupEventListeners() {
-        searchInput?.addEventListener('input', debounce(renderDocuments, 300));
-        closeInfoPanelBtn?.addEventListener('click', closeInfoPanel);
-        infoPanelOverlay?.addEventListener('click', closeInfoPanel);
-        cancelButton?.addEventListener('click', closeConfirmModal);
-        confirmButton?.addEventListener('click', executeAction);
-    }
-
-    // --- API FUNCTIONS - ENDPOINT AGGIORNATI ---
-    async function fetchData(url, options = {}) {
-        try {
-            const response = await fetch(url, options);
-            if (!response.ok) {
-                // Gestisce errori di permessi specificamente
-                if (response.status === 403 || response.status === 401) {
-                    throw new Error('Access denied: Administrator privileges required');
-                }
-                throw new Error(`Network response was not ok: ${response.statusText}`);
-            }
-            const data = await response.json();
-            
-            // Controlla se il server ha restituito un errore di permessi
-            if (!data.success && data.error && data.error.includes('Access denied')) {
-                throw new Error(data.error);
-            }
-            
-            return data;
-        } catch (error) {
-            console.error(`Fetch error for ${url}:`, error);
-            showNotification(`Error: ${error.message}`, 'error');
-            
-            // Se è un errore di permessi, mostra messaggio speciale
-            if (error.message.includes('Access denied')) {
-                documentsContent.innerHTML = `
-                    <div class="state-container">
-                        <div class="alert alert-warning">
-                            <svg viewBox="0 0 24 24" width="1.5em" height="1.5em" class="size-6 shrink-0"><path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12c5.16-1.26 9-6.45 9-12V5z"/></svg>
-                            <div>
-                                <h3 class="font-bold">Access Denied</h3>
-                                <div class="text-sm">This plugin requires administrator privileges.</div>
-                            </div>
-                        </div>
-                    </div>`;
-            }
-            
-            return null;
-        }
-    }
-    
-    async function refreshDocuments() {
-        documentsContent.innerHTML = `<div class="state-container"><p>Loading documents...</p></div>`;
-        // ENDPOINT AGGIORNATO: da /document a /documents
-        const data = await fetchData('/custom/documents/api/documents');
-        if (data && data.success) {
-            allChunks = data.documents || [];
-            renderDocuments();
-        } else if (data === null) {
-            // Errore già gestito in fetchData
-            return;
-        } else {
-            documentsContent.innerHTML = `<div class="state-container"><p>Could not load documents.</p></div>`;
-        }
-    }
-    
-    // --- RENDERING ---
-    function renderDocuments() {
-        if (!documentsContent) return;
-        const filter = searchInput?.value.toLowerCase() || '';
-
-        const aggregatedDocs = allChunks.reduce((acc, doc) => {
-            if (!acc[doc.source]) {
-                acc[doc.source] = { source: doc.source, chunks: 0, totalSize: 0, chunksList: [] };
-            }
-            acc[doc.source].chunks++;
-            acc[doc.source].totalSize += doc.page_content_length;
-            acc[doc.source].chunksList.push(doc);
-            return acc;
-        }, {});
-
-        let documentsToRender = Object.values(aggregatedDocs);
-        if (filter) {
-            documentsToRender = documentsToRender.filter(doc => doc.source.toLowerCase().includes(filter));
-        }
-
-        if (documentsToRender.length === 0) {
-            const message = filter ? 
-                `<h3>No documents found for "${escapeHtml(filter)}"</h3>` :
-                `<h3>No documents found</h3><p>Upload some documents to the Rabbit Hole to get started.</p>`;
-            documentsContent.innerHTML = `<div class="state-container">${message}</div>`;
-            return;
-        }
-
-        documentsContent.innerHTML = documentsToRender.map(doc => {
-            const fileExtension = doc.source.split('.').pop().toUpperCase();
-            const isUrl = doc.source.startsWith('http');
-            const iconType = isUrl ? 'URL' : (['PDF', 'TXT', 'DOCX'].includes(fileExtension) ? fileExtension : 'FILE');
-            const escapedSource = escapeHtml(doc.source);
-            const preview = doc.chunksList[0]?.preview || 'No preview available.';
-
-            return `
-            <div class="doc-card">
-                <div class="doc-icon" style="background-color: ${getColorForType(iconType)};">${iconType}</div>
-                <div class="doc-content-wrapper">
-                    <div class="doc-info">
-                        <h3 class="text-xl font-bold">${escapedSource}</h3>
-                        <p class="truncate text-sm mt-1 opacity-70">${escapeHtml(preview)}</p>
-                        <div class="text-xs mt-2 opacity-60">
-                            ${doc.chunks} chunks • ${formatBytes(doc.totalSize)}
-                        </div>
-                    </div>
-                    <div class="doc-actions">
-                        <button class="btn btn-error btn-xs" onclick="window.confirmRemoveDocument('${escapedSource}')">
-                            <svg viewBox="0 0 24 24" width="1.2em" height="1.2em" class="size-3"><path fill="currentColor" fill-rule="evenodd" d="M16.5 4.478v.227a49 49 0 0 1 3.878.512a.75.75 0 1 1-.256 1.478l-.209-.035l-1.005 13.07a3 3 0 0 1-2.991 2.77H8.084a3 3 0 0 1-2.991-2.77L4.087 6.66l-.209.035a.75.75 0 0 1-.256-1.478A49 49 0 0 1 7.5 4.705v-.227c0-1.564 1.213-2.9 2.816-2.951a53 53 0 0 1 3.369 0c1.603.051 2.815 1.387 2.815 2.951m-6.136-1.452a51 51 0 0 1 3.273 0C14.39 3.05 15 3.684 15 4.478v.113a50 50 0 0 0-6 0v-.113c0-.794.609-1.428 1.364-1.452m-.355 5.945a.75.75 0 1 0-1.5.058l.347 9a.75.75 0 1 0 1.499-.058zm5.48.058a.75.75 0 1 0-1.498-.058l-.347 9a.75.75 0 0 0 1.5.058z" clip-rule="evenodd"></path></svg>
-                            DELETE
-                        </button>
-                        <button class="btn btn-ghost btn-circle btn-sm" title="Show Info" onclick="window.showInfoPanel('${escapedSource}')">
-                             <svg viewBox="0 0 24 24" width="1.2em" height="1.2em" class="size-5"><path fill="currentColor" fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75s-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12m8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836l.042-.02a.75.75 0 0 1 .67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836l-.042.02a.75.75 0 1 1-.671-1.34zM12 9a.75.75 0 1 0 0-1.5a.75.75 0 0 0 0 1.5" clip-rule="evenodd"></path></svg>
-                        </button>
-                    </div>
-                </div>
-            </div>`;
-        }).join('');
-    }
-    
-    // --- INTERACTIONS & MODALS ---
-    window.showInfoPanel = (source) => {
-        const docData = allChunks.filter(c => c.source === source);
-        const aggregated = docData.reduce((acc, doc) => {
-            acc.totalSize += doc.page_content_length;
-            acc.chunks.push(doc);
-            return acc;
-        }, { totalSize: 0, chunks: [] });
-
-        infoPanelTitle.innerText = 'Document Info';
-        infoPanelBody.innerHTML = `
-            <div class="info-section">
-                <h4>Source</h4>
-                <p>${escapeHtml(source)}</p>
+    listHost.innerHTML = docs.map(d => {
+      const ext  = d.src.split('.').pop().toUpperCase();
+      const icon = d.src.startsWith('http') ? 'URL' : (['PDF','TXT','DOCX'].includes(ext) ? ext : 'FILE');
+      const prev = d.list[0]?.preview || 'No preview available.';
+      return `
+        <div class="doc-card">
+          <div class="doc-icon" style="background:${colorFor(icon)}">${icon}</div>
+          <div class="doc-content-wrapper">
+            <div class="doc-info">
+              <h3 class="text-xl font-bold">${escape(d.src)}</h3>
+              <p class="truncate text-sm mt-1 opacity-70">${escape(prev)}</p>
+              <div class="text-xs mt-2 opacity-60">${d.n} chunks • ${bytes(d.size)}</div>
             </div>
-            <div class="info-section">
-                <h4>Statistics</h4>
-                <ul>
-                    <li><strong>Total Chunks:</strong> ${aggregated.chunks.length}</li>
-                    <li><strong>Total Size:</strong> ${formatBytes(aggregated.totalSize)}</li>
-                    <li><strong>Average Chunk Size:</strong> ${formatBytes(aggregated.totalSize / aggregated.chunks.length)}</li>
-                </ul>
+            <div class="doc-actions">
+              <button class="btn btn-error btn-xs" onclick="window.openConfirmModal('${escape(d.src)}')">DELETE</button>
+              <button class="btn btn-circle btn-ghost btn-sm" title="Details" onclick="window.showInfoPanel('${escape(d.src)}')"><svg viewBox="0 0 24 24" width="1.2em" height="1.2em" class="size-5"><path fill="currentColor" fill-rule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75s-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12m8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836l.042-.02a.75.75 0 0 1 .67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836l-.042.02a.75.75 0 1 1-.671-1.34zM12 9a.75.75 0 1 0 0-1.5a.75.75 0 0 0 0 1.5" clip-rule="evenodd"></path></svg></button>
             </div>
-            <div class="info-section">
-                <h4>Chunks Content Preview</h4>
-                <ul>
-                    ${aggregated.chunks.slice(0, 5).map(c => `<li><strong>Chunk ${c.chunk_index || 0}:</strong> ${escapeHtml(c.preview || '')}</li>`).join('')}
-                    ${aggregated.chunks.length > 5 ? `<li><em>... and ${aggregated.chunks.length - 5} more chunks</em></li>` : ''}
-                </ul>
-            </div>
-        `;
-        infoPanelOverlay.classList.add('visible');
-        infoPanel.classList.add('visible');
-    };
-
-    function closeInfoPanel() {
-        infoPanel.classList.remove('visible');
-        infoPanelOverlay.classList.remove('visible');
-    }
-
-    window.confirmRemoveDocument = (source) => {
-        pendingAction = { type: 'remove', source };
-        confirmTitle.innerText = `Remove Document`;
-        confirmBody.innerHTML = `Are you sure you want to remove <strong>${escapeHtml(source)}</strong>? This action cannot be undone.`;
-        confirmModal.classList.add('visible');
-    };
-
-    function closeConfirmModal() {
-        confirmModal.classList.remove('visible');
-        pendingAction = null;
-    }
-
-    async function executeAction() {
-        if (!pendingAction) return;
-        const { type, source } = pendingAction;
-        
-        // ENDPOINT AGGIORNATO: da /document a /documents
-        const result = await fetchData('/custom/documents/api/remove', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ source })
-        });
-        
-        closeConfirmModal();
-
-        if (result && result.success) {
-            showNotification(result.message, 'success');
-            setTimeout(refreshDocuments, 300);
-        } else if (result) {
-            showNotification(result?.message || 'An error occurred', 'error');
-        }
-        // Se result è null, l'errore è già stato gestito in fetchData
-    }
-
-    // --- UTILITY FUNCTIONS ---
-    const formatBytes = (bytes = 0, decimals = 2) => {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const dm = decimals < 0 ? 0 : decimals;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-    };
-    
-    const escapeHtml = (text = '') => {
-        const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-        return text.replace(/[&<>"']/g, (m) => map[m]);
-    };
-    
-    function getColorForType(type) {
-        const colors = { 
-            'PDF': '#D32F2F', 
-            'TXT': '#757575', 
-            'DOCX': '#1976D2', 
-            'URL': '#388E3C', 
-            'FILE': '#512DA8' 
-        };
-        return colors[type] || colors['FILE'];
-    }
-    
-    function showNotification(message, type = 'success') {
-        const container = document.getElementById('notifications');
-        const alertClass = type === 'error' ? 'alert-error' : 'alert-success';
-        const notification = document.createElement('div');
-        notification.className = `alert ${alertClass} shadow-lg`;
-        notification.innerHTML = `<span>${message}</span>`;
-        container.appendChild(notification);
-        setTimeout(() => notification.remove(), 5000);
-    }
-    
-    const debounce = (func, wait) => {
-        let timeout;
-        return (...args) => {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
-        };
-    };
-
-    initializeApp();
+          </div>
+        </div>`;
+    }).join('');
+  }
 });
