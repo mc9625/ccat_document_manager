@@ -536,7 +536,7 @@ def api_list_documents(
         "show_document_preview": True,
         "preview_length": 200,
     }
-    max_docs       = min(settings["max_documents_per_page"], limit)
+    max_docs = limit or settings["max_documents_per_page"]
     show_preview   = settings["show_document_preview"]
     preview_length = settings["preview_length"]
 
