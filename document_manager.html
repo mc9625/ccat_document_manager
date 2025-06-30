@@ -34,7 +34,7 @@
                  <ul class="menu menu-horizontal menu-md gap-4 p-0">
                     <li><a href="/admin/" class=""><svg viewBox="0 0 20 20" width="1.2em" height="1.2em" class="size-4"><path fill="currentColor" fill-rule="evenodd" d="M9.293 2.293a1 1 0 0 1 1.414 0l7 7A1 1 0 0 1 17 11h-1v6a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6H3a1 1 0 0 1-.707-1.707z" clip-rule="evenodd"></path></svg> Home </a></li>
                     <li>
-                        <!-- ENDPOINT AGGIORNATO -->
+                        <!-- ENDPOINT UPDATED -->
                         <a href="/custom/documents" class="active">
                             <svg viewBox="0 0 24 24" width="1.2em" height="1.2em" class="size-4"><g fill="currentColor"><path fill-rule="evenodd" d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0 0 16.5 9h-1.875a1.875 1.875 0 0 1-1.875-1.875V5.25A3.75 3.75 0 0 0 9 1.5zM7.5 15a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5A.75.75 0 0 1 7.5 15m.75 2.25a.75.75 0 0 0 0 1.5H12a.75.75 0 0 0 0-1.5z" clip-rule="evenodd"></path><path d="M12.971 1.816A5.23 5.23 0 0 1 14.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 0 1 3.434 1.279a9.77 9.77 0 0 0-6.963-6.963"></path></g></svg>
                             Document Manager
@@ -43,7 +43,7 @@
                 </ul>
             </div>
             <div class="navbar-end">
-                <!-- Admin Badge per indicare che è solo per admin -->
+                <!-- Admin Badge  -->
                 <div class="badge badge-warning gap-2">
                     <svg viewBox="0 0 24 24" width="1em" height="1em" class="size-3"><path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12c5.16-1.26 9-6.45 9-12V5z"/></svg>
                     Admin Only
@@ -103,7 +103,6 @@
             <div class="flex flex-col items-center justify-center gap-4 text-neutral">
                 <h3 id="confirmPanelTitle" class="text-lg font-bold text-primary">Remove document</h3>
                 <p id="confirmPanelBody">
-                <!-- riempito via JS -->
                 </p>
                 <div class="flex items-center justify-center gap-2">
                 <button id="confirmCancelBtn" class="btn btn-outline btn-sm">
@@ -128,14 +127,11 @@
                 </button>
             </div>
             <div id="infoPanelBody" class="side-panel-body">
-                <!-- Info content will be inserted here by JS -->
             </div>
         </aside>
     </div>
 
     <div id="notifications" class="toast toast-end"></div>
-
-    <!-- ENDPOINT AGGIORNATO -->
     <script src="/custom/documents/script.js"></script>
 </body>
 </html>

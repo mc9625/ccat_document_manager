@@ -1,7 +1,7 @@
 {
     "name": "Document Manager",
-    "version": "2.0.0",
-    "description": "Production-ready document management plugin with secure JWT authentication, optimized memory operations, and comprehensive web interface. Manage documents in your Cheshire Cat's Rabbit Hole with confidence.",
+    "version": "2.0.3",
+    "description": "Production-ready document management plugin with secure JWT authentication, optimized memory operations, and comprehensive web interface.Go to /custom/documents.",
     "author_name": "NuvolaProject",
     "author_url": "https://nuvolaproject.cloud",
     "plugin_url": "https://github.com/mc9625/ccat_document_manager",

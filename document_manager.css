@@ -137,7 +137,7 @@
 .info-section { margin-bottom: 1.5rem; }
 .info-section h4 { font-weight: 600; color: oklch(var(--p)); margin-bottom: 0.5rem; }
 .info-section p, .info-section ul { background-color: oklch(var(--b2)); padding: 1rem; border-radius: 0.5rem; word-wrap: break-word; }
-.info-section ul { list-style: none; padding-left: 0; }
+.info-section ul { list-style: none; }
 .info-section li { padding: 0.25rem 0; }
 .info-section li strong { opacity: 0.9; }
 
