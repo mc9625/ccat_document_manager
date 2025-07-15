@@ -65,8 +65,6 @@ class SecurityManager:
             return SecurityManager._has_admin_perm(user_data.permissions)
         return False
 
-security = SecurityManager()
-
 # ───────────────────────────── SETTINGS MODEL ─────────────────────────
 
 class DocumentManagerSettings(BaseModel):
@@ -459,30 +457,27 @@ def _jwt_has_plugin_edit(token: str) -> bool:
 
 def _brutal_auth_check(request: Request) -> tuple[bool, str]:
     """
-    Verifica che il JWT (header **o** cookie) esista e contenga PLUGINS/EDIT.
-    Restituisce (ok, msg).
+    Verify that the JWT (header **or** cookie) exists and contains PLUGINS/EDIT.
+    Returns (ok, msg).
     """
-    found, token = _get_jwt_from_request(request)
-    if not found:
+    token = _get_jwt_from_request(request)
+    if not token:
         return False, "no JWT provided"
 
     try:
-        import base64, json
-        #
-        #  decode senza firma  -------------------------------------------------
+        # Decode without signature
         head, payload_b64, sig = token.split(".")
-        payload_b64 += "=" * (-len(payload_b64) % 4)           # padding
+        payload_b64 += "=" * (-len(payload_b64) % 4)  # padding
         data = json.loads(base64.urlsafe_b64decode(payload_b64))
 
         if "EDIT" in data.get("permissions", {}).get("PLUGINS", []):
             return True, f"Admin user: {data.get('username', '?')}"
         return False, "missing PLUGINS/EDIT permission"
 
-    except Exception as exc:                                   # token malformato
+    except Exception as exc:  # malformed token
         return False, f"JWT parse error: {exc}"
 
 # ───────────────────────────── WEB UI & STATIC - BRUTAL AUTH ──────────
-
 
 @endpoint.get("/documents")
 def web_ui(request: Request, stray = AdminDepends):
@@ -508,7 +503,6 @@ def js(stray = AdminDepends):
 # ---------------------------------------------------------------------
 #  /custom/documents/api/documents
 # ---------------------------------------------------------------------
-from fastapi import Query                        # import opzionali
 
 @endpoint.get("/documents/api/documents")
 def api_list_documents(
@@ -517,15 +511,15 @@ def api_list_documents(
     limit : int = Query(25, ge=1, le=1000),
 ):
     """
-    Restituisce la lista (o la ricerca) dei documenti presenti nel Rabbit Hole.
+    Returns the list (or search) of documents in the Rabbit Hole.
 
-    Autorizzazione:
-        L’utente deve possedere il permesso **PLUGINS/EDIT** – il middleware
-        legge automaticamente il JWT dal cookie `ccat_user_token` o
-        dall’header `Authorization: Bearer …` e, in caso di permessi
-        insufficienti, alza HTTP 403 senza entrare in questo handler.
+    Authorization:
+        User must have **PLUGINS/EDIT** permission - middleware
+        automatically reads JWT from `ccat_user_token` cookie or
+        `Authorization: Bearer ...` header and raises HTTP 403 
+        if permissions are insufficient.
     """
-    # ——————————————————————————— impostazioni base
+    # Base settings
     settings = {
         "max_documents_per_page": 25,
         "show_document_preview": True,
@@ -535,9 +529,9 @@ def api_list_documents(
     show_preview   = settings["show_document_preview"]
     preview_length = settings["preview_length"]
 
-    # ——————————————————————————— accesso a memoria
-    # Nel contesto degli endpoint `stray` è l’istanza di Cheshire Cat,
-    # quindi possiamo usare direttamente stray.memory.
+    # Memory access
+    # In endpoint context, `stray` is the Cheshire Cat instance,
+    # so we can use stray.memory directly.
     cat = stray
 
     if filter.strip():
@@ -546,7 +540,7 @@ def api_list_documents(
     else:
         points = memory_manager.enumerate_points_robust(cat, limit=max_docs)
 
-    # ——————————————————————————— trasformazione risultati
+    # Transform results
     documents = []
     for p in points:
         doc_info = memory_manager.extract_document_metadata(p)
@@ -574,20 +568,10 @@ def api_list_documents(
     }
 
 @endpoint.get("/documents/api/stats")
-def api_document_stats(request: Request):
-    """Get comprehensive document statistics. BRUTAL AUTH."""
-    is_authorized, message = _brutal_auth_check(request)
-    
-    if not is_authorized:
-        return {"success": False, "error": f"Access denied: {message}"}
-    
+def api_document_stats(request: Request, stray = AdminDepends):
+    """Get comprehensive document statistics."""
     try:
-        # Create dummy cat object
-        class DummyCat:
-            pass
-        cat = DummyCat()
-        
-        points = memory_manager.enumerate_points_robust(cat, limit=None)
+        points = memory_manager.enumerate_points_robust(stray, limit=None)
         
         stats = {
             "total_documents": 0,
@@ -651,7 +635,7 @@ def api_document_stats(request: Request):
 def api_remove_document(
     request: Request,
     stray = AdminDepends,
-    request_data: Dict[str, str] = Body(...),   # 🔧 FIX – parse JSON body
+    request_data: Dict[str, str] = Body(...),   # FIX - parse JSON body
 ):
     source = request_data.get("source", "").strip()
     if not source:
@@ -662,20 +646,10 @@ def api_remove_document(
     return {"success": True, "message": f"Removed {deleted} chunks", "deleted_chunks": deleted}
 
 @endpoint.post("/documents/api/clear")
-def api_clear_all_documents(request: Request):
-    """Clear all documents from memory. BRUTAL AUTH."""
-    is_authorized, message = _brutal_auth_check(request)
-    
-    if not is_authorized:
-        return {"success": False, "message": f"Access denied: {message}"}
-    
+def api_clear_all_documents(request: Request, stray = AdminDepends):
+    """Clear all documents from memory."""
     try:
-        # Create dummy cat object
-        class DummyCat:
-            pass
-        cat = DummyCat()
-        
-        deleted_count = doc_ops.clear_all_documents(cat)
+        deleted_count = doc_ops.clear_all_documents(stray)
         
         log.warning(f"🧹 ALL DOCUMENTS CLEARED via API ({deleted_count} chunks)")
         
@@ -694,7 +668,7 @@ def api_clear_all_documents(request: Request):
 @tool(return_direct=True)
 def list_documents(query_filter, cat):
     """List all documents in the Rabbit Hole with optional filtering."""
-    if not security.cli_allowed(cat):
+    if not SecurityManager.cli_allowed(cat):
         return "❌ Access denied: admin privileges required."
     
     try:
@@ -757,7 +731,7 @@ def list_documents(query_filter, cat):
 @tool(return_direct=True)
 def remove_document(document_name, cat):
     """Remove a specific document from the Rabbit Hole."""
-    if not security.cli_allowed(cat):
+    if not SecurityManager.cli_allowed(cat):
         return "❌ Access denied: admin privileges required."
     
     if not document_name or not document_name.strip():
@@ -785,7 +759,7 @@ def remove_document(document_name, cat):
 @tool(return_direct=True)
 def clear_all_documents(confirmation, cat):
     """Clear ALL documents from the Rabbit Hole. Requires confirmation."""
-    if not security.cli_allowed(cat):
+    if not SecurityManager.cli_allowed(cat):
         return "❌ Access denied: admin privileges required."
     
     if confirmation != "CONFIRM":
@@ -821,7 +795,7 @@ def clear_all_documents(confirmation, cat):
 @tool(return_direct=True)
 def document_statistics(detail_level, cat):
     """Show comprehensive statistics about documents in the Rabbit Hole."""
-    if not security.cli_allowed(cat):
+    if not SecurityManager.cli_allowed(cat):
         return "❌ Access denied: admin privileges required."
     
     try:
@@ -933,7 +907,7 @@ def document_statistics(detail_level, cat):
 @tool(return_direct=True)
 def test_document_plugin(test_message, cat):
     """Test the document manager plugin functionality."""
-    if not security.cli_allowed(cat):
+    if not SecurityManager.cli_allowed(cat):
         return "❌ Access denied: admin privileges required."
     
     user_id = getattr(cat, 'user_id', 'unknown')
