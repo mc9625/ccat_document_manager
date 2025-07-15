@@ -1,6 +1,6 @@
 {
     "name": "Document Manager",
-    "version": "2.0.3",
+    "version": "2.0.4",
     "description": "Production-ready document management plugin with secure JWT authentication, optimized memory operations, and comprehensive web interface.Go to /custom/documents.",
     "author_name": "NuvolaProject",
     "author_url": "https://nuvolaproject.cloud",
