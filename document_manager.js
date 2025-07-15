@@ -71,6 +71,22 @@ document.addEventListener('DOMContentLoaded', () => {
   searchIn?.addEventListener('input', debounce(renderList));
   refreshList();
 
+  listHost.addEventListener('click', event => {
+    const btn = event.target.closest('button[data-action]');
+    if (!btn) return;
+
+    const action = btn.getAttribute('data-action');
+    const src    = btn.getAttribute('data-src');
+
+    if (action === 'delete') {
+      openConfirmModal(src);
+    } else if (action === 'info') {
+      showInfoPanel(src);
+    }
+  });
+
+
+
   /* ────── functions ────── */
 
   function syncTheme() {
@@ -196,9 +212,11 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="text-xs mt-2 opacity-60">${d.n} chunks • ${fmtBytes(d.size)}</div>
             </div>
             <div class="doc-actions">
-              <button class="btn btn-error btn-xs" onclick="window.openConfirmModal('${esc(d.src)}')">DELETE</button>
+              <button class="btn btn-error btn-xs" data-action="delete" data-src="${esc(d.src)}">
+                DELETE
+              </button>
               <button class="btn btn-circle btn-ghost btn-sm" title="Details"
-                      onclick="window.showInfoPanel('${esc(d.src)}')">
+                      data-action="info" data-src="${esc(d.src)}">
                 <svg viewBox="0 0 24 24" width="1.2em" height="1.2em">
                   <path fill="currentColor" fill-rule="evenodd"
                         d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75s-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12m8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836l.042-.02a.75.75 0 0 1 .67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836l-.042.02a.75.75 0 1 1-.671-1.34zM12 9a.75.75 0 1 0 0-1.5a.75.75 0 0 0 0 1.5"

@@ -1,10 +1,5 @@
 """
-Document Manager Plugin for Cheshire Cat AI - PRODUCTION READY
-File: document_manager.py
-
-Hardened authentication: endpoints now *really* require admin credentials (JWT with
-PLUGINS/EDIT **and** user recognised as admin) – anonymous calls receive **403**.
-Version 2.0.2 – AUTH GATE FIX
+Document Manager Plugin for Cheshire Cat AI - PRODUCTION READY v.02
 """
 
 from __future__ import annotations
